@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Detección, Traducción y TTS Responsive</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      /* Reset y estilos básicos */
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: #f5f7fa;
+        color: #333;
+        padding: 1rem;
+      }
+      h1, h2 { margin-bottom: 0.5rem; }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 1.5rem;
+      }
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+      }
+      .input-group input,
+      .input-group button {
+        padding: 0.75rem;
+        font-size: 1rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      .input-group button {
+        background: #007bff;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      .input-group button:disabled { background: #aaa; cursor: not-allowed; }
+      /* Secciones de cada etapa */
+      .stage { border-top: 1px solid #eee; padding: 1rem 0; }
+      .stage:first-of-type { border-top: none; }
+      .stage .status {
+        font-style: italic;
+        color: #555;
+        margin-bottom: 0.5rem;
+      }
+      .spinner {
+        border: 4px solid rgba(0, 0, 0, 0.1);
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border-left-color: #007bff;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 0.5rem;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      /* Responsive */
+      @media (max-width: 600px) {
+        .container { padding: 1rem; }
+        .input-group { gap: 0.5rem; }
+      }
+      /* Barra de descarga de modelos */
+      #modelProgress {
+        background: #e9ecef;
+        padding: 0.5rem;
+        border-radius: 4px;
+        text-align: center;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Detección, Traducción y TTS</h1>
+      <div class="input-group">
+        <label for="text">Introduce el texto:</label>
+        <input type="text" id="text" value="Hello, how are you?" />
+        <button id="speak" disabled>Cargando modelos...</button>
+      </div>
+      <div id="modelProgress">
+        <strong id="downloadProgressText">Descargando modelos... 0%</strong>
+      </div>
+      <!-- Sección para cada etapa -->
+      <div id="stage-deteccion" class="stage">
+        <h2>Detección de idioma</h2>
+        <div class="status" id="detected-status">Pendiente</div>
+        <div id="detected-info"></div>
+      </div>
+      <div id="stage-traduccion" class="stage">
+        <h2>Traducción</h2>
+        <div class="status" id="translation-status">Pendiente</div>
+        <div id="translation-info"></div>
+      </div>
+      <div id="stage-audio" class="stage">
+        <h2>Audio</h2>
+        <div class="status" id="audio-status">Pendiente</div>
+        <div id="audio-container"></div>
+      </div>
+    </div>
+
+    <script>
+      // Variables para almacenar el progreso (valor entre 0 y 1)
+      let progressMap = {
+        langDetector: 0,
+        translator: 0,
+        synthesizer: 0
+      };
+
+      function updateDownloadProgress() {
+        // Aseguramos que los valores sean numéricos
+        const ld = Number(progressMap.langDetector) || 0;
+        const tr = Number(progressMap.translator) || 0;
+        const ts = Number(progressMap.synthesizer) || 0;
+        const avg = Math.round(((ld + tr + ts) / 3) * 100);
+        document.getElementById("downloadProgressText").textContent = "Descargando modelos... " + avg + "%";
+      }
+
+      // Crear el Web Worker
+      const worker = new Worker("worker.js", { type: "module" });
+      const speakButton = document.getElementById("speak");
+      const textInput = document.getElementById("text");
+
+      // Elementos para cada etapa
+      const detectedStatus = document.getElementById("detected-status");
+      const detectedInfo = document.getElementById("detected-info");
+      const translationStatus = document.getElementById("translation-status");
+      const translationInfo = document.getElementById("translation-info");
+      const audioStatus = document.getElementById("audio-status");
+      const audioContainer = document.getElementById("audio-container");
+      const modelProgressDiv = document.getElementById("modelProgress");
+
+      worker.onmessage = (e) => {
+        const { type, data, translation, model, progress, detected, mapped, stage, status } = e.data;
+        if (type === "download-progress") {
+          progressMap[model] = progress;
+          updateDownloadProgress();
+        } else if (type === "loaded") {
+          modelProgressDiv.style.display = "none";
+          speakButton.textContent = "Generar Voz";
+          speakButton.disabled = false;
+        } else if (type === "stage") {
+          if (stage === "deteccion") {
+            if (status === "in-progress") {
+              detectedStatus.innerHTML = '<span class="spinner"></span>Detectando idioma...';
+              detectedInfo.textContent = "";
+            } else if (status === "complete") {
+              detectedStatus.textContent = "Completado";
+              detectedInfo.textContent = `Idioma detectado: ${detected} (${mapped})`;
+            }
+          } else if (stage === "traduccion") {
+            if (status === "in-progress") {
+              translationStatus.innerHTML = '<span class="spinner"></span>Traduciendo...';
+              translationInfo.textContent = "";
+            } else if (status === "complete") {
+              translationStatus.textContent = "Completado";
+              translationInfo.textContent = translation;
+            }
+          } else if (stage === "audio") {
+            if (status === "in-progress") {
+              audioStatus.innerHTML = '<span class="spinner"></span>Generando audio...';
+              audioContainer.innerHTML = "";
+            } else if (status === "complete") {
+              audioStatus.textContent = "Completado";
+            }
+          }
+        } else if (type === "result") {
+          const wavBlob = new Blob([data], { type: "audio/wav" });
+          const audioUrl = URL.createObjectURL(wavBlob);
+          audioContainer.innerHTML = `<audio controls src="${audioUrl}" autoplay style="width: 100%;"></audio>`;
+          speakButton.disabled = false;
+          speakButton.textContent = "Generar Voz";
+        } else if (type === "error") {
+          alert("Error: " + data);
+          speakButton.disabled = false;
+          speakButton.textContent = "Generar Voz";
+        }
+      };
+
+      speakButton.addEventListener("click", () => {
+        const text = textInput.value.trim();
+        if (!text) {
+          alert("Por favor, ingresa un texto.");
+          return;
+        }
+        // Reiniciamos las secciones de cada etapa
+        detectedStatus.textContent = "Pendiente";
+        detectedInfo.textContent = "";
+        translationStatus.textContent = "Pendiente";
+        translationInfo.textContent = "";
+        audioStatus.textContent = "Pendiente";
+        audioContainer.innerHTML = "";
+        speakButton.disabled = true;
+        speakButton.textContent = "Procesando...";
+        worker.postMessage({ type: "speak", text });
+      });
+    </script>
+  </body>
+</html>
