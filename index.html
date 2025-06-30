@@ -81,6 +81,12 @@
         gap: 0.5rem;
         margin: 0.25rem 0;
       }
+      progress {
+        width: 100%;
+      }
+      progress.complete {
+        accent-color: #28a745;
+      }
     </style>
   </head>
   <body>
@@ -148,8 +154,18 @@
         langPercent.textContent = ld + "%";
         transPercent.textContent = tr + "%";
         ttsPercent.textContent = ts + "%";
+
+        [
+          [langProgress, ld],
+          [transProgress, tr],
+          [ttsProgress, ts]
+        ].forEach(([el, val]) => {
+          if (val === 100) el.classList.add("complete");
+          else el.classList.remove("complete");
+        });
         const avg = Math.round((ld + tr + ts) / 3);
-        document.getElementById("downloadProgressText").textContent = "Descargando modelos... " + avg + "%";
+        downloadProgressText.textContent =
+          avg === 100 ? "Modelos listos" : "Descargando modelos... " + avg + "%";
       }
 
       // Crear el Web Worker
@@ -163,6 +179,7 @@
       const transPercent = document.getElementById("transPercent");
       const ttsPercent = document.getElementById("ttsPercent");
       const cacheInfo = document.getElementById("cacheInfo");
+      const downloadProgressText = document.getElementById("downloadProgressText");
       const redownloadBtn = document.getElementById("redownloadBtn");
       const deleteBtn = document.getElementById("deleteBtn");
 
@@ -193,11 +210,14 @@
 
         worker.onmessage = async (e) => {
           const { type, data, translation, model, progress, detected, mapped, stage, status } = e.data;
-          if (type === "download-progress") {
-            progressMap[model] = progress;
-            updateDownloadProgress();
-          } else if (type === "loaded") {
-            const finalUsage = await estimateUsage();
+
+        if (type === "download-progress") {
+          progressMap[model] = progress;
+          updateDownloadProgress();
+        } else if (type === "loaded") {
+          progressMap = { langDetector: 1, translator: 1, synthesizer: 1 };
+          updateDownloadProgress();
+          const finalUsage = await estimateUsage();
             const sizeMB = ((finalUsage - initialUsage) / (1024 * 1024)).toFixed(2);
             cacheInfo.textContent = `Tama\u00f1o total: ${sizeMB} MB`;
             localStorage.setItem("modelsCached", "true");
@@ -271,14 +291,18 @@
         worker.postMessage({ type: "speak", text });
       });
 
-      redownloadBtn.addEventListener("click", async () => {
-        redownloadBtn.disabled = true;
-        deleteBtn.disabled = true;
-        await clearCaches();
-        localStorage.removeItem("modelsCached");
-        localStorage.removeItem("modelsSize");
-        progressMap = { langDetector: 0, translator: 0, synthesizer: 0 };
-        updateDownloadProgress();
+        redownloadBtn.addEventListener("click", async () => {
+          redownloadBtn.disabled = true;
+          deleteBtn.disabled = true;
+          await clearCaches();
+          localStorage.removeItem("modelsCached");
+          localStorage.removeItem("modelsSize");
+          progressMap = { langDetector: 0, translator: 0, synthesizer: 0 };
+          langProgress.classList.remove("complete");
+          transProgress.classList.remove("complete");
+          ttsProgress.classList.remove("complete");
+          updateDownloadProgress();
+
         initialUsage = await estimateUsage();
         initWorker();
         redownloadBtn.disabled = false;
@@ -291,9 +315,11 @@
         localStorage.removeItem("modelsCached");
         localStorage.removeItem("modelsSize");
         cacheInfo.textContent = "";
-        redownloadBtn.style.display = "inline-block";
-        deleteBtn.style.display = "none";
-        deleteBtn.disabled = false;
+        langProgress.classList.remove("complete");
+        transProgress.classList.remove("complete");
+        ttsProgress.classList.remove("complete");
+        progressMap = { langDetector: 0, translator: 0, synthesizer: 0 };
+        updateDownloadProgress();
       });
 
       (async () => {
@@ -303,6 +329,8 @@
           cacheInfo.textContent = `Tama\u00f1o total: ${sizeMB} MB`;
           redownloadBtn.style.display = "inline-block";
           deleteBtn.style.display = "inline-block";
+          progressMap = { langDetector: 1, translator: 1, synthesizer: 1 };
+          updateDownloadProgress();
         }
         initWorker();
       })();
