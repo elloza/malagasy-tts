@@ -11,9 +11,15 @@ import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist
  */
 export async function loadPipeline(task, modelId, options = {}, progressCallback) {
   const opts = Object.assign({}, options, {
-    progress_callback: (progress) => {
-      progress = Number(progress);
-      if (!Number.isFinite(progress)) progress = 0;
+    progress_callback: (p) => {
+      let progress = 0;
+      if (p && typeof p === "object" && typeof p.progress === "number") {
+        progress = p.progress;
+        if (progress > 1) progress /= 100;
+      } else if (typeof p === "number") {
+        progress = p;
+        if (progress > 1) progress /= 100;
+      }
       if (typeof progressCallback === "function") {
         progressCallback(progress);
       }
