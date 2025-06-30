@@ -154,6 +154,7 @@
         langPercent.textContent = ld + "%";
         transPercent.textContent = tr + "%";
         ttsPercent.textContent = ts + "%";
+
         [
           [langProgress, ld],
           [transProgress, tr],
@@ -209,6 +210,7 @@
 
         worker.onmessage = async (e) => {
           const { type, data, translation, model, progress, detected, mapped, stage, status } = e.data;
+
         if (type === "download-progress") {
           progressMap[model] = progress;
           updateDownloadProgress();
@@ -300,6 +302,7 @@
           transProgress.classList.remove("complete");
           ttsProgress.classList.remove("complete");
           updateDownloadProgress();
+
         initialUsage = await estimateUsage();
         initWorker();
         redownloadBtn.disabled = false;
@@ -317,9 +320,6 @@
         ttsProgress.classList.remove("complete");
         progressMap = { langDetector: 0, translator: 0, synthesizer: 0 };
         updateDownloadProgress();
-        redownloadBtn.style.display = "inline-block";
-        deleteBtn.style.display = "none";
-        deleteBtn.disabled = false;
       });
 
       (async () => {
