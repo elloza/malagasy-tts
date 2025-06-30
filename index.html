@@ -155,17 +155,12 @@
         transPercent.textContent = tr + "%";
         ttsPercent.textContent = ts + "%";
 
-        [
-          [langProgress, ld],
-          [transProgress, tr],
-          [ttsProgress, ts]
-        ].forEach(([el, val]) => {
-          if (val === 100) el.classList.add("complete");
-          else el.classList.remove("complete");
-        });
-        const avg = Math.round((ld + tr + ts) / 3);
+        const completed = [ld, tr, ts].filter(v => v === 100).length;
+        const overall = completed === 3 ? 100 : completed * 33;
         downloadProgressText.textContent =
-          avg === 100 ? "Modelos listos" : "Descargando modelos... " + avg + "%";
+          overall === 100 ? "Modelos listos" :
+          "Descargando modelos... " + overall + "%";
+
       }
 
       // Crear el Web Worker
@@ -265,6 +260,91 @@
         };
       }
 
+
+      async function estimateUsage() {
+        if (navigator.storage && navigator.storage.estimate) {
+          const { usage } = await navigator.storage.estimate();
+          return usage || 0;
+        }
+        return 0;
+      }
+
+      async function clearCaches() {
+        if (caches && caches.keys) {
+          const keys = await caches.keys();
+          for (const k of keys) await caches.delete(k);
+        }
+        if (indexedDB && indexedDB.databases) {
+          const dbs = await indexedDB.databases();
+          for (const db of dbs) if (db.name) indexedDB.deleteDatabase(db.name);
+        }
+      }
+
+      function initWorker() {
+        worker?.terminate();
+        worker = new Worker("worker.js", { type: "module" });
+
+        worker.onmessage = async (e) => {
+          const { type, data, translation, model, progress, detected, mapped, stage, status } = e.data;
+        if (type === "download-progress") {
+          progressMap[model] = progress;
+          updateDownloadProgress();
+        } else if (type === "loaded") {
+          progressMap = { langDetector: 1, translator: 1, synthesizer: 1 };
+          updateDownloadProgress();
+          let sizeMB;
+          if (localStorage.getItem("modelsCached") === "true") {
+            sizeMB = localStorage.getItem("modelsSize") || "";
+          } else {
+            const finalUsage = await estimateUsage();
+            sizeMB = ((finalUsage - initialUsage) / (1024 * 1024)).toFixed(2);
+            localStorage.setItem("modelsCached", "true");
+            localStorage.setItem("modelsSize", sizeMB);
+          }
+          cacheInfo.textContent = `Tama\u00f1o total: ${sizeMB} MB`;
+          redownloadBtn.style.display = "inline-block";
+          deleteBtn.style.display = "inline-block";
+          speakButton.textContent = "Generar Voz";
+          speakButton.disabled = false;
+          } else if (type === "stage") {
+            if (stage === "deteccion") {
+              if (status === "in-progress") {
+                detectedStatus.innerHTML = '<span class="spinner"></span>Detectando idioma...';
+                detectedInfo.textContent = "";
+              } else if (status === "complete") {
+                detectedStatus.textContent = "Completado";
+                detectedInfo.textContent = `Idioma detectado: ${detected} (${mapped})`;
+              }
+            } else if (stage === "traduccion") {
+              if (status === "in-progress") {
+                translationStatus.innerHTML = '<span class="spinner"></span>Traduciendo...';
+                translationInfo.textContent = "";
+              } else if (status === "complete") {
+                translationStatus.textContent = "Completado";
+                translationInfo.textContent = translation;
+              }
+            } else if (stage === "audio") {
+              if (status === "in-progress") {
+                audioStatus.innerHTML = '<span class="spinner"></span>Generando audio...';
+                audioContainer.innerHTML = "";
+              } else if (status === "complete") {
+                audioStatus.textContent = "Completado";
+              }
+            }
+          } else if (type === "result") {
+            const wavBlob = new Blob([data], { type: "audio/wav" });
+            const audioUrl = URL.createObjectURL(wavBlob);
+            audioContainer.innerHTML = `<audio controls src="${audioUrl}" autoplay style="width: 100%;"></audio>`;
+            speakButton.disabled = false;
+            speakButton.textContent = "Generar Voz";
+          } else if (type === "error") {
+            alert("Error: " + data);
+            speakButton.disabled = false;
+            speakButton.textContent = "Generar Voz";
+          }
+        };
+      }
+
       // Elementos para cada etapa
       const detectedStatus = document.getElementById("detected-status");
       const detectedInfo = document.getElementById("detected-info");
@@ -274,34 +354,7 @@
       const audioContainer = document.getElementById("audio-container");
       const modelProgressDiv = document.getElementById("modelProgress");
 
-      speakButton.addEventListener("click", () => {
-        const text = textInput.value.trim();
-        if (!text) {
-          alert("Por favor, ingresa un texto.");
-          return;
-        }
-        detectedStatus.textContent = "Pendiente";
-        detectedInfo.textContent = "";
-        translationStatus.textContent = "Pendiente";
-        translationInfo.textContent = "";
-        audioStatus.textContent = "Pendiente";
-        audioContainer.innerHTML = "";
-        speakButton.disabled = true;
-        speakButton.textContent = "Procesando...";
-        worker.postMessage({ type: "speak", text });
-      });
 
-        redownloadBtn.addEventListener("click", async () => {
-          redownloadBtn.disabled = true;
-          deleteBtn.disabled = true;
-          await clearCaches();
-          localStorage.removeItem("modelsCached");
-          localStorage.removeItem("modelsSize");
-          progressMap = { langDetector: 0, translator: 0, synthesizer: 0 };
-          langProgress.classList.remove("complete");
-          transProgress.classList.remove("complete");
-          ttsProgress.classList.remove("complete");
-          updateDownloadProgress();
 
         initialUsage = await estimateUsage();
         initWorker();
@@ -320,6 +373,10 @@
         ttsProgress.classList.remove("complete");
         progressMap = { langDetector: 0, translator: 0, synthesizer: 0 };
         updateDownloadProgress();
+        redownloadBtn.style.display = "inline-block";
+        deleteBtn.style.display = "none";
+        deleteBtn.disabled = false;
+
       });
 
       (async () => {
